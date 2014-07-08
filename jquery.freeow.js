@@ -11,6 +11,14 @@
  * http://pjdietz.com/jquery-plugins/freeow/
  */
 
+/**
+ * This is a custom implementation of Freeow. Do not upgrade without making the neccessary changes.
+ *      Change List
+ *          - Added swiping feature using mouse.
+ *          - Changed template function to accept and build a jQuery object instead of just accepting text/html.
+ *          - Added ability to store metadata (alertID, eventID, etc.) in the Freeow object.
+ */
+
 /*global setTimeout, jQuery */
 
 (function ($) {
@@ -19,12 +27,13 @@
 
     var Freeow;
 
-    Freeow = function (title, message, options) {
+    Freeow = function (title, message, options, metadata) {
 
         var startStyle, i, u;
 
         // Merge the options.
         this.options = $.extend({}, $.fn.freeow.defaults, options);
+        this.metadata = $.extend({}, metadata);
 
         // Build the element with the template function.
         this.element = $(this.options.template(title, message));
@@ -47,7 +56,7 @@
         }
 
         // Bind the event handler.
-        this.element.click(this.options.onClick);
+        this.element.mousedown(this.options.onDown);
         this.element.hover(this.options.onHover);
 
         // Default. Set to true in show() if there's an autoHideDelay.
@@ -133,13 +142,13 @@
 
         $.fn.extend({
 
-            freeow: function (title, message, options) {
+            freeow: function (title, message, options, metadata) {
 
                 return this.each(function () {
 
                     var f;
 
-                    f = new Freeow(title, message, options);
+                    f = new Freeow(title, message, options, metadata);
                     f.attach(this);
 
                 }); // return this.each()
@@ -148,6 +157,10 @@
 
         }); // $.fn.extend()
 
+        var startX = null;
+        var startY = null;
+        var containerX = null;
+        var clickActive = false;
         // Configuration Defaults.
         $.fn.freeow.defaults = {
 
@@ -161,32 +174,128 @@
             hideStyle: {opacity: 0.0},
             hideDuration: 500,
 
-            onClick: function (event) {
-                $(this).data("freeow").hide();
-            },
-
             onHover: function (event) {
                 $(this).data("freeow").autoHide = false;
+
             },
+
+            onDown: function (event){
+                if(clickActive == true){
+                    $(this).css({left: 0});
+                    clickActive = false;
+                    $(this).parents().eq(1).attr('unselectable', 'off')
+                        .css('user-select', 'text')
+                        .css('-moz-user-select', 'text')
+                        .css('-khtml-user-select', 'text')
+                        .css('-webkit-user-select', 'text');
+                    return;
+                }
+                clickActive = true;
+                startX = event.pageX;
+                startY = event.pageY;
+
+                var temp = $(this).parent().position();
+                containerX = temp.left;
+
+                //Bind the body onUp event so the user isn't selecting everything
+                $(this).parents().eq(1).attr('unselectable', 'on')
+                    .css('user-select', 'none')
+                    .css('-moz-user-select', 'none')
+                    .css('-khtml-user-select', 'none')
+                    .css('-webkit-user-select', 'none');
+
+
+                var self = this;
+
+                var mouseUpListener = function(event){
+                    $(self).parents().eq(1).off('mouseup', mouseUpListener);
+                    $(self).parents().eq(1).off('mousemove', mouseMoveListener);
+
+                    //MouseUp triggered
+                    if(clickActive == true){
+
+                        clickActive = false;
+
+                        if(Math.abs(event.pageY - startY) > 50)
+                        { // if the user drug over 50 pixels up or down, they may not be swiping
+                            $(self).css({left: 0});
+                        }
+                        else if(event.pageX - startX < 100)
+                        { // Too short of a swipe
+                            $(self).css({left: 0});
+                        }
+                        else
+                        { // Should be an official swipe.
+                            br.Timeline.ignoredHiddenEntities.push(parseInt($(self).find('.IDs').text()));
+                            $(self).data("freeow").hide();
+                        }
+                    }
+
+                    $(this).parents().eq(1).attr('unselectable', 'off')
+                        .css('user-select', 'text')
+                        .css('-moz-user-select', 'text')
+                        .css('-khtml-user-select', 'text')
+                        .css('-webkit-user-select', 'text');
+                };
+
+                var mouseMoveListener = function(event){
+                    if(clickActive == true){
+                        if(startX == 0){
+                            $(self).css({left: 0});
+                            clickActive = false;
+                            $(self).parents().eq(1).off('mouseup', mouseUpListener);
+                            $(self).parents().eq(1).off('mousemove', mouseMoveListener);
+                            return;
+                        }
+
+                        var temp = event.pageX - startX;
+                        if(event.pageX < containerX)
+                        {
+                            $(self).css({left: 0});
+                            clickActive = false;
+                            $(self).parents().eq(1).off('mouseup', mouseUpListener);
+                            $(self).parents().eq(1).off('mousemove', mouseMoveListener);
+                        }
+                        else if(Math.abs(event.pageY - startY) > 50)
+                        {
+                            $(self).css({left: 0});
+                            clickActive = false;
+                            $(self).parents().eq(1).off('mouseup', mouseUpListener);
+                            $(self).parents().eq(1).off('mousemove', mouseMoveListener);
+                        }
+                        else if(event.pageX < startX)
+                        {
+                            $(self).css({left: 0});
+                            clickActive = false;
+                            $(self).parents().eq(1).off('mouseup', mouseUpListener);
+                            $(self).parents().eq(1).off('mousemove', mouseMoveListener);
+                        }
+                        else
+                        {
+                            $(self).css({left: temp});
+                        }
+                    }
+                };
+
+                $(this).parents().eq(1).on('mouseup', mouseUpListener);
+                $(this).parents().eq(1).on('mousemove', mouseMoveListener);
+            },
+
+        //    onMove: function(event){},
 
             template: function (title, message) {
 
-                var e;
+                var closeButton = $('<span class="close"></span>').click(function() {
+                    var alertId = $(this).parents(br.Timeline.NotificationCenter.FREEOW_CONTAINER_CLASS).data('freeow').metadata.alertId;
+                    br.Timeline.NotificationCenter.deleteNotification(alertId);
+                });
+                
+                message.wrapAll('<div class="container-freeow"><div class="background"><div class="content"></div></div></div>');
+                var newContainer = message.parents('.container-freeow');
+                newContainer.append(closeButton);
+                message.parent().prepend('<h2>' + title + '</h2>');
 
-                e = [
-                    '<div>',
-                    '<div class="background">',
-                    '<div class="content">',
-                    '<h2>' + title + '</h2>',
-                    '<p>' + message + '</p>',
-                    '</div>',
-                    '</div>',
-                    '<span class="icon"></span>',
-                    '<span class="close"></span>',
-                    '</div>'
-                ].join("");
-
-                return e;
+                return newContainer;
             }
 
         }; // $.fn.freeow.defaults
